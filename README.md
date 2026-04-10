@@ -13,6 +13,7 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 | [Geospatial UDF](geo-udf/) | 100 | 77 ST_ geometry functions + 23 H3 hexagonal grid functions | ✅ 28/28 live tests |
 | [Vector UDF](vector-udf/) | 26 | Vector similarity, distance, arithmetic, and transformation functions | ✅ 59/59 unit + 12/12 live tests |
 | [ML UDF](ml-udf/) | 32 | Classical ML: activation, scoring, feature engineering, encoding, clustering, anomaly detection, evaluation | ✅ 40/40 live tests |
+| [PII UDF](pii-udf/) | 44 | PII detection, masking, extraction, and tokenization for 15 data types | ✅ 39/39 live tests |
 
 ---
 
@@ -23,6 +24,7 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 cp geo-udf/jars/dremio-geo-udf-1.0.0.jar     /opt/dremio/jars/3rdparty/
 cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar /opt/dremio/jars/3rdparty/
 cp ml-udf/jars/dremio-ml-udf-1.0.0.jar       /opt/dremio/jars/3rdparty/
+cp pii-udf/jars/dremio-pii-udf-1.0.0.jar     /opt/dremio/jars/3rdparty/
 ```
 
 **Docker:**
@@ -30,6 +32,7 @@ cp ml-udf/jars/dremio-ml-udf-1.0.0.jar       /opt/dremio/jars/3rdparty/
 docker cp geo-udf/jars/dremio-geo-udf-1.0.0.jar     try-dremio:/opt/dremio/jars/3rdparty/
 docker cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar try-dremio:/opt/dremio/jars/3rdparty/
 docker cp ml-udf/jars/dremio-ml-udf-1.0.0.jar       try-dremio:/opt/dremio/jars/3rdparty/
+docker cp pii-udf/jars/dremio-pii-udf-1.0.0.jar     try-dremio:/opt/dremio/jars/3rdparty/
 docker restart try-dremio
 ```
 
@@ -148,6 +151,49 @@ FROM results;
 
 ---
 
+### [PII UDF](pii-udf/)
+
+**44 PII functions** for detecting, masking, extracting, and tokenizing personally identifiable information directly in Dremio SQL. Covers 15 data types with checksum-validated detection and format-preserving masking.
+
+```sql
+-- Classify every row for PII type
+SELECT value, PII_TYPE(value) AS pii_type, PII_SCORE(value) AS score
+FROM raw_data;
+
+-- Mask sensitive columns before sharing
+SELECT
+    MASK_EMAIL(email)               AS email,
+    MASK_PHONE(phone)               AS phone,
+    MASK_CREDIT_CARD(card_number)   AS card,
+    MASK_SSN(ssn)                   AS ssn
+FROM customers;
+
+-- Extract PII from unstructured text
+SELECT
+    log_id,
+    EXTRACT_EMAIL(message)      AS email_found,
+    EXTRACT_IPV4(message)       AS ip_found,
+    EXTRACT_ALL_PII(message)    AS all_pii_json
+FROM application_logs
+WHERE IS_PII(message) = 1;
+
+-- Pseudonymize for cross-system joins
+SELECT PII_TOKENIZE(email) AS token, SUM(revenue) AS total
+FROM transactions GROUP BY token;
+```
+
+| Category | Functions |
+|----------|-----------|
+| Detection | `IS_EMAIL`, `IS_PHONE`, `IS_SSN`, `IS_CREDIT_CARD`, `IS_IBAN`, `IS_IPV4`, `IS_IPV6`, `IS_ZIP`, `IS_DOB`, `IS_PASSPORT`, `IS_VIN`, `IS_NPI`, `IS_EIN`, `IS_MAC`, `IS_URL`, `IS_PII` |
+| Classification | `PII_TYPE`, `PII_SCORE` |
+| Masking | `MASK_EMAIL`, `MASK_PHONE`, `MASK_SSN`, `MASK_CREDIT_CARD`, `MASK_IBAN`, `MASK_IPV4`, `MASK_NAME`, `MASK_DOB`, `MASK_CUSTOM`, `PII_REDACT` |
+| Extraction | `EXTRACT_EMAIL`, `EXTRACT_PHONE`, `EXTRACT_SSN`, `EXTRACT_CREDIT_CARD`, `EXTRACT_IBAN`, `EXTRACT_IPV4`, `EXTRACT_IPV6`, `EXTRACT_URL`, `EXTRACT_ALL_PII` |
+| Hash / Tokenization | `PII_SHA256`, `PII_SHA256` (salted), `PII_MD5`, `PII_TOKENIZE` |
+
+**Key features:** 44 scalar UDFs · pure Java (no external deps) · Luhn/IBAN mod-97/VIN check digit validation · format-preserving masking · free-text extraction · salted SHA-256 · stable tokens for pseudonymization
+
+---
+
 ## Requirements
 
 | Requirement | Details |
@@ -181,6 +227,12 @@ cd ml-udf
 docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
   maven:3.9-eclipse-temurin-11 \
   mvn package -DskipTests
+
+# PII UDF (no external deps)
+cd pii-udf
+docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
+  maven:3.9-eclipse-temurin-11 \
+  mvn package -DskipTests
 ```
 
 Pre-built JARs are included in each library's `jars/` directory for direct installation without a build step.
@@ -202,6 +254,10 @@ dremio-community-udfs/
 ├── ml-udf/          — ML UDF library (32 functions)
 │   ├── jars/        — Pre-built JAR
 │   ├── src/         — Java source
+│   └── pom.xml
+├── pii-udf/         — PII UDF library (44 functions)
+│   ├── jars/        — Pre-built JAR
+│   ├── src/         — Java source (PiiUtils + 4 function files)
 │   └── pom.xml
 └── .github/
     └── workflows/   — CI per library
