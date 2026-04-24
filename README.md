@@ -15,6 +15,7 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 | [ML UDF](ml-udf/) | 32 | Classical ML: activation, scoring, feature engineering, encoding, clustering, anomaly detection, evaluation | ✅ 40/40 live tests |
 | [PII UDF](pii-udf/) | 44 | PII detection, masking, extraction, and tokenization for 15 data types | ✅ 39/39 live tests |
 | [Text Similarity UDF](text-similarity-udf/) | 20 | Edit distance, Jaro-Winkler, n-gram, Jaccard, Dice, token fuzzy matching, normalization | ✅ 84/84 unit tests |
+| [Date/Time UDF](datetime-udf/) | 24 | Fiscal calendar, business days, period end boundaries, diff in months/years, epoch millis, date formatting | ✅ 67/67 unit + 28/28 live tests |
 
 ---
 
@@ -27,6 +28,7 @@ cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar     /opt/dremio/jars/3rd
 cp ml-udf/jars/dremio-ml-udf-1.0.0.jar                      /opt/dremio/jars/3rdparty/
 cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    /opt/dremio/jars/3rdparty/
 cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar /opt/dremio/jars/3rdparty/
+cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar               /opt/dremio/jars/3rdparty/
 ```
 
 **Docker:**
@@ -36,6 +38,7 @@ docker cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar     try-dremio:/o
 docker cp ml-udf/jars/dremio-ml-udf-1.0.0.jar                      try-dremio:/opt/dremio/jars/3rdparty/
 docker cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    try-dremio:/opt/dremio/jars/3rdparty/
 docker cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar try-dremio:/opt/dremio/jars/3rdparty/
+docker cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar          try-dremio:/opt/dremio/jars/3rdparty/
 docker restart try-dremio
 ```
 
@@ -233,6 +236,52 @@ SELECT TEXT_TRIGRAM_SIMILARITY('123 Main Street', '123 Main St'); -- 0.667
 
 ---
 
+### [Date/Time UDF](datetime-udf/)
+
+**24 date and time functions** that fill the gaps left by Dremio's native `DATE_TRUNC`, `LAST_DAY`, `DATEDIFF` (days only), and `TO_UNIX_TIMESTAMP` (seconds only). Covers fiscal calendars, business day math, period end boundaries, date diff in months/years, millisecond epoch conversions, and `DATE_FORMAT`.
+
+```sql
+-- Fiscal calendar reporting (July fiscal year start — AU/US federal)
+SELECT
+  DT_FISCAL_YEAR(sale_date, 7)       AS fy,
+  DT_FISCAL_QUARTER(sale_date, 7)    AS fq,
+  SUM(amount)                         AS revenue
+FROM sales
+GROUP BY 1, 2;
+
+-- SLA tracking in business days
+SELECT
+  ticket_id,
+  DT_BIZDAYS_BETWEEN(created_date, resolved_date) AS biz_days_to_resolve,
+  DT_ADD_BIZDAYS(created_date, 5)                 AS sla_due_date
+FROM support_tickets;
+
+-- Age-based customer segmentation
+SELECT customer_id,
+  DT_AGE_YEARS(date_of_birth, CURRENT_DATE) AS age
+FROM customers;
+
+-- Millisecond-precision epoch (Kafka, JavaScript, event streams)
+SELECT DT_TO_UNIX_MILLIS(event_timestamp) AS epoch_ms FROM event_log;
+
+-- DATE_FORMAT (missing from Dremio natively)
+SELECT DT_FORMAT(order_date, '%B %d, %Y') FROM orders;
+-- → 'March 15, 2024'
+```
+
+| Category | Functions |
+|---|---|
+| Fiscal Calendar | `DT_FISCAL_YEAR`, `DT_FISCAL_QUARTER`, `DT_FISCAL_MONTH`, `DT_FISCAL_WEEK`, `DT_FISCAL_YEAR_START`, `DT_FISCAL_YEAR_END`, `DT_FISCAL_QUARTER_START`, `DT_FISCAL_QUARTER_END` |
+| Business Days | `DT_IS_WEEKDAY`, `DT_BIZDAYS_BETWEEN`, `DT_ADD_BIZDAYS`, `DT_NEXT_WEEKDAY`, `DT_PREV_WEEKDAY` |
+| Period End Boundaries | `DT_WEEK_END`, `DT_QUARTER_END`, `DT_YEAR_END`, `DT_DAYS_IN_MONTH` |
+| Date Arithmetic | `DT_DIFF_MONTHS`, `DT_DIFF_YEARS`, `DT_AGE_YEARS`, `DT_IS_LEAP_YEAR` |
+| Unix Epoch (Millis) | `DT_TO_UNIX_MILLIS`, `DT_FROM_UNIX_MILLIS`, `DT_TO_UNIX_SECONDS`, `DT_FROM_UNIX_SECONDS` |
+| Formatting | `DT_FORMAT`, `DT_FORMAT_TS` |
+
+**Key features:** 24 scalar UDFs · pure Java 11 (no external deps) · configurable fiscal year start month · weekday-only business day math · period end boundaries (week/quarter/year) · millisecond epoch conversions · strftime-style date formatting
+
+---
+
 ## Requirements
 
 | Requirement | Details |
@@ -278,6 +327,12 @@ cd text-similarity-udf
 docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
   maven:3.9-eclipse-temurin-11 \
   mvn package -DskipTests
+
+# Date/Time UDF (no external deps)
+cd datetime-udf
+docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
+  maven:3.9-eclipse-temurin-11 \
+  mvn package -DskipTests
 ```
 
 Pre-built JARs are included in each library's `jars/` directory for direct installation without a build step.
@@ -307,6 +362,12 @@ dremio-community-udfs/
 ├── text-similarity-udf/  — Text Similarity UDF library (20 functions)
 │   ├── jars/             — Pre-built JAR
 │   ├── src/              — Java source (TextSimilarityUtils + 3 function files)
+│   ├── install.sh
+│   ├── rebuild.sh
+│   └── pom.xml
+├── datetime-udf/         — Date/Time UDF library (24 functions)
+│   ├── jars/             — Pre-built JAR
+│   ├── src/              — Java source (DateTimeUtils + 6 function files)
 │   ├── install.sh
 │   ├── rebuild.sh
 │   └── pom.xml
