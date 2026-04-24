@@ -14,6 +14,7 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 | [Vector UDF](vector-udf/) | 26 | Vector similarity, distance, arithmetic, and transformation functions | ✅ 59/59 unit + 12/12 live tests |
 | [ML UDF](ml-udf/) | 32 | Classical ML: activation, scoring, feature engineering, encoding, clustering, anomaly detection, evaluation | ✅ 40/40 live tests |
 | [PII UDF](pii-udf/) | 44 | PII detection, masking, extraction, and tokenization for 15 data types | ✅ 39/39 live tests |
+| [Text Similarity UDF](text-similarity-udf/) | 20 | Edit distance, Jaro-Winkler, n-gram, Jaccard, Dice, token fuzzy matching, normalization | ✅ 84/84 unit tests |
 
 ---
 
@@ -21,18 +22,20 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 
 ```bash
 # Copy any JAR to Dremio's third-party directory and restart
-cp geo-udf/jars/dremio-geo-udf-1.0.0.jar     /opt/dremio/jars/3rdparty/
-cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar /opt/dremio/jars/3rdparty/
-cp ml-udf/jars/dremio-ml-udf-1.0.0.jar       /opt/dremio/jars/3rdparty/
-cp pii-udf/jars/dremio-pii-udf-1.0.0.jar     /opt/dremio/jars/3rdparty/
+cp geo-udf/jars/dremio-geo-udf-1.0.0.jar                    /opt/dremio/jars/3rdparty/
+cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar     /opt/dremio/jars/3rdparty/
+cp ml-udf/jars/dremio-ml-udf-1.0.0.jar                      /opt/dremio/jars/3rdparty/
+cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    /opt/dremio/jars/3rdparty/
+cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar /opt/dremio/jars/3rdparty/
 ```
 
 **Docker:**
 ```bash
-docker cp geo-udf/jars/dremio-geo-udf-1.0.0.jar     try-dremio:/opt/dremio/jars/3rdparty/
-docker cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar try-dremio:/opt/dremio/jars/3rdparty/
-docker cp ml-udf/jars/dremio-ml-udf-1.0.0.jar       try-dremio:/opt/dremio/jars/3rdparty/
-docker cp pii-udf/jars/dremio-pii-udf-1.0.0.jar     try-dremio:/opt/dremio/jars/3rdparty/
+docker cp geo-udf/jars/dremio-geo-udf-1.0.0.jar                    try-dremio:/opt/dremio/jars/3rdparty/
+docker cp vector-udf/jars/dremio-vector-udf-1.0.0-SNAPSHOT.jar     try-dremio:/opt/dremio/jars/3rdparty/
+docker cp ml-udf/jars/dremio-ml-udf-1.0.0.jar                      try-dremio:/opt/dremio/jars/3rdparty/
+docker cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    try-dremio:/opt/dremio/jars/3rdparty/
+docker cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar try-dremio:/opt/dremio/jars/3rdparty/
 docker restart try-dremio
 ```
 
@@ -194,6 +197,42 @@ FROM transactions GROUP BY token;
 
 ---
 
+### [Text Similarity UDF](text-similarity-udf/)
+
+**20 text similarity functions** for fuzzy matching, entity resolution, and string distance in Dremio SQL. Covers the algorithms Dremio doesn't have natively (`SOUNDEX` and `REGEXP_*` are built in; this library adds everything else). No external runtime dependencies — pure Java 11.
+
+```sql
+-- Name fuzzy matching: resolve Salesforce contacts to CRM records
+SELECT s.Id, c.customer_id
+FROM salesforce.Contact s
+JOIN iceberg.crm.customers c
+  ON TEXT_FUZZY_MATCH(s.Name, c.full_name, 0.88) = 1;
+
+-- Handle word-order variation: "John Smith" = "Smith John"
+SELECT TEXT_TOKEN_SORT_RATIO('John Smith', 'Smith John');   -- 1.0
+
+-- Normalize + strip accents before comparison
+SELECT TEXT_LEVENSHTEIN(
+  TEXT_NORMALIZE(TEXT_REMOVE_DIACRITICS(a)),
+  TEXT_NORMALIZE(TEXT_REMOVE_DIACRITICS(b))
+) FROM my_table;
+
+-- Address similarity
+SELECT TEXT_TRIGRAM_SIMILARITY('123 Main Street', '123 Main St'); -- 0.667
+```
+
+| Category | Functions |
+|---|---|
+| Edit Distance | `TEXT_LEVENSHTEIN`, `TEXT_LEVENSHTEIN_SIMILARITY`, `TEXT_HAMMING_DISTANCE`, `TEXT_LCS_LENGTH`, `TEXT_PARTIAL_RATIO` |
+| Character Similarity | `TEXT_JARO`, `TEXT_JARO_WINKLER`, `TEXT_TRIGRAM_SIMILARITY`, `TEXT_BIGRAM_SIMILARITY`, `TEXT_NGRAM_SIMILARITY` |
+| Word-Set Similarity | `TEXT_JACCARD_SIMILARITY`, `TEXT_DICE_SIMILARITY`, `TEXT_OVERLAP_COEFFICIENT`, `TEXT_COSINE_SIMILARITY` |
+| Token Fuzzy Matching | `TEXT_TOKEN_SORT_RATIO`, `TEXT_TOKEN_SET_RATIO`, `TEXT_FUZZY_MATCH`, `TEXT_IS_SIMILAR` |
+| Normalization | `TEXT_NORMALIZE`, `TEXT_REMOVE_DIACRITICS` |
+
+**Key features:** 20 scalar UDFs · pure Java 11 (no external deps) · Levenshtein / Hamming / LCS · Jaro-Winkler · character n-gram · word-set Jaccard / Dice / Overlap / Cosine TF · token sort/set ratio · threshold-based boolean match gates · diacritic removal
+
+---
+
 ## Requirements
 
 | Requirement | Details |
@@ -233,6 +272,12 @@ cd pii-udf
 docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
   maven:3.9-eclipse-temurin-11 \
   mvn package -DskipTests
+
+# Text Similarity UDF (no external deps)
+cd text-similarity-udf
+docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
+  maven:3.9-eclipse-temurin-11 \
+  mvn package -DskipTests
 ```
 
 Pre-built JARs are included in each library's `jars/` directory for direct installation without a build step.
@@ -255,9 +300,15 @@ dremio-community-udfs/
 │   ├── jars/        — Pre-built JAR
 │   ├── src/         — Java source
 │   └── pom.xml
-├── pii-udf/         — PII UDF library (44 functions)
-│   ├── jars/        — Pre-built JAR
-│   ├── src/         — Java source (PiiUtils + 4 function files)
+├── pii-udf/              — PII UDF library (44 functions)
+│   ├── jars/             — Pre-built JAR
+│   ├── src/              — Java source (PiiUtils + 4 function files)
+│   └── pom.xml
+├── text-similarity-udf/  — Text Similarity UDF library (20 functions)
+│   ├── jars/             — Pre-built JAR
+│   ├── src/              — Java source (TextSimilarityUtils + 3 function files)
+│   ├── install.sh
+│   ├── rebuild.sh
 │   └── pom.xml
 └── .github/
     └── workflows/   — CI per library
