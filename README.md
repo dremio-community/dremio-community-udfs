@@ -1,6 +1,6 @@
 # Dremio Community UDFs
 
-Community-built SQL UDF libraries for [Dremio](https://www.dremio.com/) — adding scalar and aggregate functions not available in Dremio's standard function library.
+Community-built SQL UDF libraries for [Dremio](https://www.dremio.com/) — adding scalar functions not available in Dremio's pre-packaged function library.
 
 Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and immediately extends Dremio's SQL engine with new functions.
 
