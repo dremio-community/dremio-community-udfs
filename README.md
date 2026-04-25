@@ -16,6 +16,7 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 | [PII UDF](pii-udf/) | 44 | PII detection, masking, extraction, and tokenization for 15 data types | ✅ 39/39 live tests |
 | [Text Similarity UDF](text-similarity-udf/) | 20 | Edit distance, Jaro-Winkler, n-gram, Jaccard, Dice, token fuzzy matching, normalization | ✅ 84/84 unit tests |
 | [Date/Time UDF](datetime-udf/) | 24 | Fiscal calendar, business days, period end boundaries, diff in months/years, epoch millis, date formatting | ✅ 67/67 unit + 28/28 live tests |
+| [Crypto UDF](crypto-udf/) | 15 | MD5, SHA-1/256/512, CRC32, HMAC-SHA256/512, AES-256-CBC, Base64, hex encoding, UUID, timing-safe compare | ✅ 49/49 unit + 15/15 live tests |
 
 ---
 
@@ -29,6 +30,7 @@ cp ml-udf/jars/dremio-ml-udf-1.0.0.jar                      /opt/dremio/jars/3rd
 cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    /opt/dremio/jars/3rdparty/
 cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar /opt/dremio/jars/3rdparty/
 cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar               /opt/dremio/jars/3rdparty/
+cp crypto-udf/jars/dremio-crypto-udf-1.0.0.jar                  /opt/dremio/jars/3rdparty/
 ```
 
 **Docker:**
@@ -39,6 +41,7 @@ docker cp ml-udf/jars/dremio-ml-udf-1.0.0.jar                      try-dremio:/o
 docker cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    try-dremio:/opt/dremio/jars/3rdparty/
 docker cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar try-dremio:/opt/dremio/jars/3rdparty/
 docker cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar          try-dremio:/opt/dremio/jars/3rdparty/
+docker cp crypto-udf/jars/dremio-crypto-udf-1.0.0.jar              try-dremio:/opt/dremio/jars/3rdparty/
 docker restart try-dremio
 ```
 
@@ -279,6 +282,45 @@ SELECT DT_FORMAT(order_date, '%B %d, %Y') FROM orders;
 | Formatting | `DT_FORMAT`, `DT_FORMAT_TS` |
 
 **Key features:** 24 scalar UDFs · pure Java 11 (no external deps) · configurable fiscal year start month · weekday-only business day math · period end boundaries (week/quarter/year) · millisecond epoch conversions · strftime-style date formatting
+
+---
+
+### [Crypto UDF](crypto-udf/)
+
+**15 cryptographic functions** for hashing, HMAC authentication codes, AES-256 encryption, and encoding — all in pure Java with no external dependencies.
+
+```sql
+-- Hash sensitive identifiers for pseudonymization
+SELECT CRYPTO_SHA256(email) AS email_hash FROM users;
+
+-- Verify webhook signatures
+SELECT CRYPTO_CONSTANT_TIME_EQUALS(
+  CRYPTO_HMAC_SHA256(payload, 'webhook-secret'),
+  received_signature
+) AS valid FROM webhook_events;
+
+-- AES-256-CBC round-trip
+SELECT CRYPTO_AES_DECRYPT(
+  CRYPTO_AES_ENCRYPT('sensitive data', 'encryption-key'),
+  'encryption-key'
+) AS recovered;
+
+-- Encoding
+SELECT CRYPTO_BASE64_ENCODE('Hello');   -- aGVsbG8=
+SELECT CRYPTO_HEX_ENCODE('hello');      -- 68656c6c6f
+SELECT CRYPTO_RANDOM_UUID();            -- uuid v4
+SELECT CRYPTO_CRC32('hello');           -- 907060870
+```
+
+| Category | Functions |
+|---|---|
+| Hashing | `CRYPTO_MD5`, `CRYPTO_SHA1`, `CRYPTO_SHA256`, `CRYPTO_SHA512`, `CRYPTO_CRC32` |
+| HMAC | `CRYPTO_HMAC_SHA256`, `CRYPTO_HMAC_SHA512` |
+| Encoding | `CRYPTO_BASE64_ENCODE`, `CRYPTO_BASE64_DECODE`, `CRYPTO_HEX_ENCODE`, `CRYPTO_HEX_DECODE` |
+| Encryption | `CRYPTO_AES_ENCRYPT`, `CRYPTO_AES_DECRYPT` |
+| Utility | `CRYPTO_RANDOM_UUID`, `CRYPTO_CONSTANT_TIME_EQUALS` |
+
+**Key features:** 15 scalar UDFs · AES-256-CBC with random IV per call · key stretching via SHA-256 (any-length keys) · timing-safe hash comparison · pure Java 11 (java.security, javax.crypto) · no external dependencies
 
 ---
 
