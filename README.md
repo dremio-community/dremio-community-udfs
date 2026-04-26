@@ -17,6 +17,7 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 | [Text Similarity UDF](text-similarity-udf/) | 20 | Edit distance, Jaro-Winkler, n-gram, Jaccard, Dice, token fuzzy matching, normalization | ✅ 84/84 unit tests |
 | [Date/Time UDF](datetime-udf/) | 24 | Fiscal calendar, business days, period end boundaries, diff in months/years, epoch millis, date formatting | ✅ 67/67 unit + 28/28 live tests |
 | [Crypto UDF](crypto-udf/) | 15 | MD5, SHA-1/256/512, CRC32, HMAC-SHA256/512, AES-256-CBC, Base64, hex encoding, UUID, timing-safe compare | ✅ 49/49 unit + 15/15 live tests |
+| [JSON UDF](json-udf/) | 21 | JSON extraction, inspection, manipulation, array operations, and builder functions for VARCHAR columns | ✅ 23/23 live tests |
 
 ---
 
@@ -31,6 +32,7 @@ cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    /opt/dremio/jars/3rd
 cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar /opt/dremio/jars/3rdparty/
 cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar               /opt/dremio/jars/3rdparty/
 cp crypto-udf/jars/dremio-crypto-udf-1.0.0.jar                  /opt/dremio/jars/3rdparty/
+cp json-udf/jars/dremio-json-udf-1.0.0.jar                      /opt/dremio/jars/3rdparty/
 ```
 
 **Docker:**
@@ -42,6 +44,7 @@ docker cp pii-udf/jars/dremio-pii-udf-1.0.0.jar                    try-dremio:/o
 docker cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar try-dremio:/opt/dremio/jars/3rdparty/
 docker cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar          try-dremio:/opt/dremio/jars/3rdparty/
 docker cp crypto-udf/jars/dremio-crypto-udf-1.0.0.jar              try-dremio:/opt/dremio/jars/3rdparty/
+docker cp json-udf/jars/dremio-json-udf-1.0.0.jar                  try-dremio:/opt/dremio/jars/3rdparty/
 docker restart try-dremio
 ```
 
@@ -324,6 +327,50 @@ SELECT CRYPTO_CRC32('hello');           -- 907060870
 
 ---
 
+### [JSON UDF](json-udf/)
+
+**21 JSON functions** for parsing, extracting, inspecting, manipulating, and building JSON strings in Dremio SQL. Works on `VARCHAR` columns containing JSON — complements Dremio's native `CONVERT_FROM`/`FLATTEN` which operate on native nested types.
+
+```sql
+-- Extract typed values from a JSON log column
+SELECT
+    JSON_EXTRACT_STR(payload, 'user.email')     AS email,
+    JSON_EXTRACT_INT(payload, 'response.code')  AS http_code,
+    JSON_EXTRACT_BOOL(payload, 'success')       AS succeeded
+FROM api_logs;
+
+-- Inspect JSON structure
+SELECT JSON_TYPE(payload) AS kind, JSON_LENGTH(payload) AS num_keys
+FROM events
+WHERE JSON_IS_VALID(payload) = 1;
+
+-- Manipulate JSON: set a key, merge two objects
+SELECT JSON_MERGE(
+    JSON_SET(row_data, 'processed', 'true'),
+    '{"version": 2}'
+) AS enriched FROM records;
+
+-- Array operations
+SELECT JSON_ARRAY_LENGTH(tags)         AS tag_count,
+       JSON_ARRAY_GET(tags, 0)         AS first_tag,
+       JSON_ARRAY_CONTAINS_STR(tags, 'urgent') AS is_urgent
+FROM tickets;
+```
+
+| Category | Functions |
+|---|---|
+| Extraction | `JSON_EXTRACT_STR`, `JSON_EXTRACT_INT`, `JSON_EXTRACT_FLOAT`, `JSON_EXTRACT_BOOL`, `JSON_EXTRACT_RAW` |
+| Inspection | `JSON_IS_VALID`, `JSON_TYPE`, `JSON_LENGTH`, `JSON_HAS_KEY`, `JSON_KEYS` |
+| Manipulation | `JSON_SET`, `JSON_DELETE`, `JSON_MERGE`, `JSON_PRETTY`, `JSON_MINIFY` |
+| Array | `JSON_ARRAY_LENGTH`, `JSON_ARRAY_GET`, `JSON_ARRAY_CONTAINS_STR`, `JSON_ARRAY_APPEND` |
+| Build | `JSON_FROM_KV`, `JSON_WRAP_STR` |
+
+Path syntax: dot-notation — `"a.b.c"` for nested keys, `"items.0.name"` for array indices. All extraction functions return `NULL` if the path is missing or the type doesn't match.
+
+**Key features:** 21 scalar UDFs · dot-path extraction for nested/array keys · typed extraction (string, int, float, bool, raw JSON) · structure inspection (type, length, keys) · in-place set/delete/merge · pretty-print + minify · array append + contains · JSON builder functions · uses Jackson (bundled in Dremio, no extra deps)
+
+---
+
 ## Requirements
 
 | Requirement | Details |
@@ -375,6 +422,18 @@ cd datetime-udf
 docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
   maven:3.9-eclipse-temurin-11 \
   mvn package -DskipTests
+
+# Crypto UDF (no external deps)
+cd crypto-udf
+docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
+  maven:3.9-eclipse-temurin-11 \
+  mvn package -DskipTests
+
+# JSON UDF (uses Jackson bundled in Dremio — no extra deps)
+cd json-udf
+docker run --rm -v "$(pwd)":/project -v ~/.m2:/root/.m2 -w /project \
+  maven:3.9-eclipse-temurin-11 \
+  mvn package -DskipTests
 ```
 
 Pre-built JARs are included in each library's `jars/` directory for direct installation without a build step.
@@ -410,6 +469,16 @@ dremio-community-udfs/
 ├── datetime-udf/         — Date/Time UDF library (24 functions)
 │   ├── jars/             — Pre-built JAR
 │   ├── src/              — Java source (DateTimeUtils + 6 function files)
+│   ├── install.sh
+│   ├── rebuild.sh
+│   └── pom.xml
+├── crypto-udf/           — Crypto UDF library (15 functions)
+│   ├── jars/             — Pre-built JAR
+│   ├── src/              — Java source (java.security, javax.crypto)
+│   └── pom.xml
+├── json-udf/             — JSON UDF library (21 functions)
+│   ├── jars/             — Pre-built JAR
+│   ├── src/              — Java source (Jackson-based, no extra deps)
 │   ├── install.sh
 │   ├── rebuild.sh
 │   └── pom.xml
