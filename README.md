@@ -18,10 +18,35 @@ Each UDF library is a self-contained JAR that installs into `jars/3rdparty/` and
 | [Date/Time UDF](datetime-udf/) | 24 | Fiscal calendar, business days, period end boundaries, diff in months/years, epoch millis, date formatting | ✅ 67/67 unit + 28/28 live tests |
 | [Crypto UDF](crypto-udf/) | 15 | MD5, SHA-1/256/512, CRC32, HMAC-SHA256/512, AES-256-CBC, Base64, hex encoding, UUID, timing-safe compare | ✅ 49/49 unit + 15/15 live tests |
 | [JSON UDF](json-udf/) | 21 | JSON extraction, inspection, manipulation, array operations, and builder functions for VARCHAR columns | ✅ 23/23 live tests |
+| [Finance UDF](finance-udf/) | 30 | TVM (PV/FV/PMT/NPER/RATE), NPV, IRR, compound interest, CAGR, amortization, Black-Scholes, bond pricing, depreciation, financial ratios | ✅ 36/36 unit + 30/30 live tests |
 
 ---
 
 ## Quick Install
+
+A root-level installer handles everything — copy JARs, single restart:
+
+```bash
+# Install all UDFs at once
+./install.sh --all
+
+# Install specific UDFs
+./install.sh --udfs finance,crypto,datetime
+
+# Non-default Docker container or bare-metal
+./install.sh --all --docker my-dremio
+./install.sh --all --local /opt/dremio
+./install.sh --all --k8s dremio-0
+
+# Install without restarting (restart manually afterward)
+./install.sh --all --no-restart
+```
+
+Available UDF names: `crypto`, `datetime`, `finance`, `geo`, `json`, `ml`, `pii`, `text-similarity`, `vector`
+
+---
+
+### Manual Install (individual JARs)
 
 ```bash
 # Copy any JAR to Dremio's third-party directory and restart
@@ -33,6 +58,7 @@ cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar /opt/dremio/jar
 cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar               /opt/dremio/jars/3rdparty/
 cp crypto-udf/jars/dremio-crypto-udf-1.0.0.jar                  /opt/dremio/jars/3rdparty/
 cp json-udf/jars/dremio-json-udf-1.0.0.jar                      /opt/dremio/jars/3rdparty/
+cp finance-udf/jars/dremio-finance-udf-1.0.0.jar               /opt/dremio/jars/3rdparty/
 ```
 
 **Docker:**
@@ -45,6 +71,7 @@ docker cp text-similarity-udf/jars/dremio-text-similarity-udf-1.0.0.jar try-drem
 docker cp datetime-udf/jars/dremio-datetime-udf-1.0.0.jar          try-dremio:/opt/dremio/jars/3rdparty/
 docker cp crypto-udf/jars/dremio-crypto-udf-1.0.0.jar              try-dremio:/opt/dremio/jars/3rdparty/
 docker cp json-udf/jars/dremio-json-udf-1.0.0.jar                  try-dremio:/opt/dremio/jars/3rdparty/
+docker cp finance-udf/jars/dremio-finance-udf-1.0.0.jar            try-dremio:/opt/dremio/jars/3rdparty/
 docker restart try-dremio
 ```
 
@@ -371,6 +398,50 @@ Path syntax: dot-notation — `"a.b.c"` for nested keys, `"items.0.name"` for ar
 
 ---
 
+### [Finance UDF](finance-udf/)
+
+**30 financial math functions** covering everything an analytics team needs for financial calculations in SQL. TVM, NPV/IRR, loan amortization, Black-Scholes options pricing, bond pricing, depreciation schedules, and 11 financial ratios — all in pure Java.
+
+```sql
+-- Monthly payment on a $300,000 mortgage at 6% APR, 30 years
+SELECT fin_pmt(0.06/12, 360, 300000) AS monthly_payment;
+-- → -1798.65
+
+-- NPV of a project: invest $5,000 now, receive $2,000/yr for 3 years at 8%
+SELECT -5000 + fin_npv(0.08, '2000,2000,2000') AS npv;
+
+-- IRR of: invest -10,000, receive 3,000, 4,000, 5,000
+SELECT fin_irr('-10000,3000,4000,5000') AS irr;
+
+-- Black-Scholes call: stock=$150, strike=$145, T=0.5yr, r=4%, vol=25%
+SELECT fin_bs_call(150, 145, 0.5, 0.04, 0.25) AS call_price;
+
+-- Amortization schedule for month 1 of a $200,000 loan at 6%/yr
+SELECT
+  fin_amort_interest(200000, 0.005, 360, 1) AS interest,
+  fin_amort_principal(200000, 0.005, 360, 1) AS principal,
+  fin_amort_balance(200000, 0.005, 360, 1) AS balance;
+
+-- P/E ratio and EPS for a stock
+SELECT fin_pe_ratio(price, fin_eps(net_income, shares_outstanding)) AS pe
+FROM stock_data;
+```
+
+| Category | Functions |
+|---|---|
+| Time Value of Money | `FIN_PV`, `FIN_FV`, `FIN_PMT`, `FIN_NPER`, `FIN_RATE` |
+| NPV & IRR | `FIN_NPV`, `FIN_IRR` |
+| Interest & Growth | `FIN_COMPOUND_INTEREST`, `FIN_SIMPLE_INTEREST`, `FIN_CAGR` |
+| Amortization | `FIN_AMORT_PAYMENT`, `FIN_AMORT_INTEREST`, `FIN_AMORT_PRINCIPAL`, `FIN_AMORT_BALANCE` |
+| Options Pricing | `FIN_BS_CALL`, `FIN_BS_PUT` |
+| Bond Pricing | `FIN_BOND_PRICE`, `FIN_BOND_DURATION`, `FIN_BOND_YTM` |
+| Depreciation | `FIN_DEPRECIATION_SL`, `FIN_DEPRECIATION_DB`, `FIN_DEPRECIATION_SYD` |
+| Ratios | `FIN_ROI`, `FIN_WACC`, `FIN_GROSS_MARGIN`, `FIN_NET_MARGIN`, `FIN_OPERATING_MARGIN`, `FIN_EPS`, `FIN_PE_RATIO`, `FIN_EV`, `FIN_DEBT_TO_EQUITY`, `FIN_CURRENT_RATIO`, `FIN_QUICK_RATIO` |
+
+**Key features:** 30 scalar UDFs · pure Java 11 (no external deps) · Newton-Raphson solvers for RATE, YTM, IRR · Black-Scholes with Abramowitz & Stegun normCdf · IRR/NPV via comma-separated VARCHAR cash flows · Excel-compatible sign conventions
+
+---
+
 ## Requirements
 
 | Requirement | Details |
@@ -479,6 +550,12 @@ dremio-community-udfs/
 ├── json-udf/             — JSON UDF library (21 functions)
 │   ├── jars/             — Pre-built JAR
 │   ├── src/              — Java source (Jackson-based, no extra deps)
+│   ├── install.sh
+│   ├── rebuild.sh
+│   └── pom.xml
+├── finance-udf/          — Finance UDF library (30 functions)
+│   ├── jars/             — Pre-built JAR
+│   ├── src/              — Java source (FinanceMath + 7 function files)
 │   ├── install.sh
 │   ├── rebuild.sh
 │   └── pom.xml
